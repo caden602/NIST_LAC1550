@@ -53,7 +53,7 @@ def checksum(v):
         crc ^= crc << 12
         crc ^= (crc & 0xff) << 5
         crc &= 0xffff  # make sure to only keep the lower 16 bits
-        crc = int(crc)
+    crc = int(crc)
     return crc
 
 # Function to create a message
@@ -152,6 +152,10 @@ def main():
     ser = open_serial_port(port, baudrate)
     if ser is None:
         return
+    
+    # Checksum validation
+    csum = checksum([0x42])
+    print(f"Checksum = 0x{csum:04x}")
 
     # Create an Ack message
     destination = 0x42
@@ -164,8 +168,10 @@ def main():
     send_message(ser, message)
 
     # Receive the response
-    response = receive_message(ser)
-    if response is not None:
+    response = receive_message(ser, timeout = 5)
+    if response is None:
+        print("No response received from device")
+    else:
         print(f"Received message: {response.header.destination}, {response.header.source}, {response.command.command}, {response.data.data}, {response.crc.msb}, {response.crc.lsb}")
 
     # Close the serial port
