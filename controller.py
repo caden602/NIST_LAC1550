@@ -155,6 +155,17 @@ def receive_message(ser, timeout=5):
     except serial.SerialException as e:
         print(f"Error receiving message: {e}")
         return None
+    
+
+def get_ack(ser):
+    message = Message(Header(0x01, 0x02), Command(0x00), Data([]))
+    response = send_message(ser, message)
+    if response and response.command.command == 0x06:  # ACK
+        print("Received ACK from device")
+        return True
+    else:
+        print("No ACK received from device")
+        return False
 
 # Main program
 def main():
@@ -166,6 +177,10 @@ def main():
     ser = open_serial_port(port, baudrate)
     if ser is None:
         return
+    
+    ack_received = get_ack(ser)
+    if not ack_received:
+        print("Error communicating with device")
 
     # Create an Ack message
     destination = 0x42
