@@ -97,7 +97,7 @@ def decode_message(encoded_message):
 # Open the serial port
 def open_serial_port(port, baudrate):
     try:
-        ser = serial.Serial(port, baudrate, timeout=1)
+        ser = serial.Serial(port, baudrate, timeout=3)
         print(f"Serial port {port} opened successfully.")
         return ser
     except serial.SerialException as e:
@@ -113,11 +113,28 @@ def send_message(ser, message):
     except serial.SerialException as e:
         print(f"Error sending message: {e}")
 
+# Receive a message over the serial port
+def receive_message(ser):
+    try:
+        encoded_message = ser.readline()
+        print(f"Received: {encoded_message}")
+        # Check if the message is long enough
+        if len(encoded_message) < 3:
+            print("Error: Received message is too short")
+            return None
+        # Unescape the source address
+        if len(encoded_message) > 3 and encoded_message[2] == 0x5e and encoded_message[3] == 0x51:
+            encoded_message = encoded_message[:2] + bytearray([0x11]) + encoded_message[4:]
+        return decode_message(encoded_message)
+    except serial.SerialException as e:
+        print(f"Error receiving message: {e}")
+        return None
+
 # Main program
 def main():
     # Replace with your serial port name and baudrate
-    port = "COM3"
-    baudrate = 9600
+    port = "COM14"
+    baudrate = 115200
 
     # Open the serial port
     ser = open_serial_port(port, baudrate)
@@ -133,6 +150,11 @@ def main():
 
     # Send the Ack message
     send_message(ser, message)
+
+    # Receive the response
+    response = receive_message(ser)
+    if response is not None:
+        print(f"Received message: {response.header.destination}, {response.header.source}, {response.command.command}, {response.data.data}, {response.crc.msb}, {response.crc.lsb}")
 
     # Close the serial port
     ser.close()
