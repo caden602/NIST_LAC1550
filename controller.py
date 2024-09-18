@@ -45,7 +45,6 @@ def checksum(v):
     :return: 16-bit checksum (CRC-16/XMODEM)
     :rtype: int
     """
-    crc = 0
     for i in v:
         crc = crc << 8 | crc >> 8
         crc ^= i
@@ -152,10 +151,6 @@ def main():
     ser = open_serial_port(port, baudrate)
     if ser is None:
         return
-    
-    # Checksum validation
-    csum = checksum([0x42])
-    print(f"Checksum = 0x{csum:04x}")
 
     # Create an Ack message
     destination = 0x42
