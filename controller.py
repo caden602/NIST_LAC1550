@@ -68,30 +68,40 @@ def create_message(destination, source, command, data):
 def encode_message(message):
     encoded_message = bytearray()
     encoded_message.append(SOT)
-    encoded_message.append(message.header.destination)
-    if message.header.source == 0x11:
-        encoded_message.append(0x5e)
-        encoded_message.append(0x51)
-    else:
-        encoded_message.append(message.header.source)
-    encoded_message.append(message.command.command)
-    encoded_message.extend(message.data.data)
-    encoded_message.append(message.crc.msb)
-    encoded_message.append(message.crc.lsb)
+    for byte in [message.header.destination, message.header.source, message.command.command] + message.data.data:
+        if byte in [EOT, SOT, X_ON, X_OFF, ECC, SOE]:
+            encoded_message.append(SOE)
+            encoded_message.append(byte + 64)
+        else:
+            encoded_message.append(byte)
+    crc = checksum([message.header.destination, message.header.source, message.command.command] + message.data.data)
+    crc_msb = (crc >> 8) & 0xFF
+    crc_lsb = crc & 0xFF
+    for byte in [crc_msb, crc_lsb]:
+        if byte in [EOT, SOT, X_ON, X_OFF, ECC, SOE]:
+            encoded_message.append(SOE)
+            encoded_message.append(byte + 64)
+        else:
+            encoded_message.append(byte)
     encoded_message.append(EOT)
     return encoded_message
 
-# Function to decode a message from bytes
 def decode_message(encoded_message):
-    if encoded_message[0] != SOT or encoded_message[-1] != EOT:
-        return None
-    message = Message(
-        Header(encoded_message[1], encoded_message[2]),
-        Command(encoded_message[3]),
-        Data(encoded_message[4:-3]),
-        CRC16((encoded_message[-3] << 8) | encoded_message[-2])
+    decoded_message = bytearray()
+    i = 1
+    while i < len(encoded_message) - 1:
+        if encoded_message[i] == SOE:
+            decoded_message.append(encoded_message[i + 1] - 64)
+            i += 2
+        else:
+            decoded_message.append(encoded_message[i])
+            i += 1
+    return Message(
+        Header(decoded_message[0], decoded_message[1]),
+        Command(decoded_message[2]),
+        Data(decoded_message[3:-2]),
+        CRC16((decoded_message[-2] << 8) | decoded_message[-1])
     )
-    return message
 
 # Open the serial port
 def open_serial_port(port, baudrate):
