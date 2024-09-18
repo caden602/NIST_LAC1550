@@ -2,9 +2,13 @@ import serial
 import time
 
 # Define the message structure constants
-SOT = 0x01  # Start of Transmission
-EOT = 0x04  # End of Transmission
+SOT = 0x0D  # Start of Transmission
+EOT = 0x0A  # End of Transmission
 ACK = 0x03  # Ack command
+X_ON = 0x11
+X_OFF = 0x13
+ECC = 0x40
+SOE = 0x5E
 
 # Define the HEADER structure
 class Header:
@@ -45,6 +49,7 @@ def checksum(v):
     :return: 16-bit checksum (CRC-16/XMODEM)
     :rtype: int
     """
+    crc = 0
     for i in v:
         crc = crc << 8 | crc >> 8
         crc ^= i
