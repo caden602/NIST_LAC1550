@@ -34,11 +34,13 @@ class CRC16:
 
 # Define the MESSAGE structure
 class Message:
-    def __init__(self, header, command, data, crc):
-        self.header = header  # Header
-        self.command = command  # Command
-        self.data = data  # Data
-        self.crc = crc  # CRC16
+    def __init__(self, destination, source, header, command, data, crc):
+        self.destination = destination
+        self.source = source
+        self.header = header
+        self.command = command
+        self.data = data
+        self.crc = crc
 
 # Function to calculate CRC-16/XMODEM checksum
 def checksum(v):
@@ -72,41 +74,22 @@ def create_message(destination, source, command, data):
 # Function to encode a message into bytes
 def encode_message(message):
     encoded_message = bytearray()
-    encoded_message.append(SOT)
-    for byte in [message.header.destination, message.header.source, message.command.command] + message.data.data:
-        if byte in [EOT, SOT, X_ON, X_OFF, ECC, SOE]:
-            encoded_message.append(SOE)
-            encoded_message.append(byte + 64)
-        else:
-            encoded_message.append(byte)
-    crc = checksum([message.header.destination, message.header.source, message.command.command] + message.data.data)
-    crc_msb = (crc >> 8) & 0xFF
-    crc_lsb = crc & 0xFF
-    for byte in [crc_msb, crc_lsb]:
-        if byte in [EOT, SOT, X_ON, X_OFF, ECC, SOE]:
-            encoded_message.append(SOE)
-            encoded_message.append(byte + 64)
-        else:
-            encoded_message.append(byte)
-    encoded_message.append(EOT)
+    encoded_message.append(message.destination)
+    encoded_message.append(message.source)
+    encoded_message.append(message.header)
+    encoded_message.append(message.command)
+    encoded_message.extend(message.data)
+    encoded_message.extend([message.crc >> 8, message.crc & 0xFF])
     return encoded_message
 
 def decode_message(encoded_message):
-    decoded_message = bytearray()
-    i = 1
-    while i < len(encoded_message) - 1:
-        if encoded_message[i] == SOE:
-            decoded_message.append(encoded_message[i + 1] - 64)
-            i += 2
-        else:
-            decoded_message.append(encoded_message[i])
-            i += 1
-    return Message(
-        Header(decoded_message[0], decoded_message[1]),
-        Command(decoded_message[2]),
-        Data(decoded_message[3:-2]),
-        CRC16((decoded_message[-2] << 8) | decoded_message[-1])
-    )
+    destination = encoded_message[0]
+    source = encoded_message[1]
+    header = encoded_message[2]
+    command = encoded_message[3]
+    data = encoded_message[4:-2]
+    crc = (encoded_message[-2] << 8) | encoded_message[-1]
+    return Message(destination, source, header, command, data, crc)
 
 # Open the serial port
 def open_serial_port(port, baudrate):
@@ -130,29 +113,27 @@ def send_message(ser, message):
 
 # Receive a message over the serial port
 def receive_message(ser):
-    try:
-        encoded_message = ser.readline()
-        print(f"Received: {encoded_message}")
-        # Check if the message is long enough
-        if len(encoded_message) < 3:
-            print("Error: Received message is too short")
-            return None
-        # Unescape the source address
-        if len(encoded_message) > 3 and encoded_message[2] == 0x5e and encoded_message[3] == 0x51:
-            encoded_message = encoded_message[:2] + bytearray([0x11]) + encoded_message[4:]
-        return decode_message(encoded_message)
-    except serial.SerialException as e:
-        print(f"Error receiving message: {e}")
-        return None
+    encoded_message = bytearray()
+    while True:
+        byte = ser.read(1)
+        if not byte:
+            break
+        encoded_message.extend(byte)
+        if len(encoded_message) >= 6 and encoded_message[-1] == EOT:  # Adjust the length and EOT byte as needed
+            break
+    return decode_message(encoded_message)
     
 
 def get_ack(ser):
-    data = [0x01, 0x02, 0x00]
-    crc = checksum(data)
-    message = Message(Header(0x01, 0x02), Command(0x00), Data([]), CRC16(crc))
+    destination = 0x01
+    source = 0x02
+    header = 0x00
+    command = 0x00
+    data = bytearray()
+    crc = 0x0000  # Replace with actual CRC calculation
+    message = Message(destination, source, header, command, data, crc)
     response = send_message(ser, message)
-    print("response", response)
-    if response and response.command.command == 0x06:  # ACK
+    if response and response.command == 0x06:  # ACK
         print("Received ACK from device")
         return True
     else:
