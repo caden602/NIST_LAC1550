@@ -114,9 +114,21 @@ def send_message(ser, message):
         print(f"Error sending message: {e}")
 
 # Receive a message over the serial port
-def receive_message(ser):
+def receive_message(ser, timeout=5):
     try:
-        encoded_message = ser.readline()
+        start_time = time.time()
+        encoded_message = bytearray()
+        while True:
+            if time.time() - start_time > timeout:
+                print("Error: Timeout waiting for response")
+                return None
+            packet = ser.readline()
+            if not packet:
+                continue
+            encoded_message.extend(packet)
+            # Check if the message is complete (e.g., check for EOT byte)
+            if encoded_message[-1] == EOT:
+                break
         print(f"Received: {encoded_message}")
         # Check if the message is long enough
         if len(encoded_message) < 3:
