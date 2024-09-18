@@ -124,25 +124,14 @@ def send_message(ser, message):
         encoded_message = encode_message(message)
         ser.write(encoded_message)
         print(f"Sent: {encoded_message}")
+        return receive_message(ser)
     except serial.SerialException as e:
         print(f"Error sending message: {e}")
 
 # Receive a message over the serial port
-def receive_message(ser, timeout=5):
+def receive_message(ser):
     try:
-        start_time = time.time()
-        encoded_message = bytearray()
-        while True:
-            if time.time() - start_time > timeout:
-                print("Error: Timeout waiting for response")
-                return None
-            packet = ser.readline()
-            if not packet:
-                continue
-            encoded_message.extend(packet)
-            # Check if the message is complete (e.g., check for EOT byte)
-            if encoded_message[-1] == EOT:
-                break
+        encoded_message = ser.readline()
         print(f"Received: {encoded_message}")
         # Check if the message is long enough
         if len(encoded_message) < 3:
@@ -158,8 +147,11 @@ def receive_message(ser, timeout=5):
     
 
 def get_ack(ser):
-    message = Message(Header(0x01, 0x02), Command(0x00), Data([]))
+    data = [0x01, 0x02, 0x00]
+    crc = checksum(data)
+    message = Message(Header(0x01, 0x02), Command(0x00), Data([]), CRC16(crc))
     response = send_message(ser, message)
+    print("response", response)
     if response and response.command.command == 0x06:  # ACK
         print("Received ACK from device")
         return True
@@ -193,7 +185,7 @@ def main():
     send_message(ser, message)
 
     # Receive the response
-    response = receive_message(ser, timeout = 5)
+    response = receive_message(ser)
     if response is None:
         print("No response received from device")
     else:
