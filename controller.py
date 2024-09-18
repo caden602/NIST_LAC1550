@@ -83,6 +83,12 @@ def encode_message(message):
     return encoded_message
 
 def decode_message(encoded_message):
+    if not encoded_message:
+        print("Error: Empty message received")
+        return None
+    if len(encoded_message) < 6:
+        print("Error: Message is too short")
+        return None
     destination = encoded_message[0]
     source = encoded_message[1]
     header = encoded_message[2]
@@ -117,12 +123,15 @@ def receive_message(ser):
     while True:
         byte = ser.read(1)
         if not byte:
-            break
+            if not encoded_message:
+                print("Error: No data received")
+                return None
+            else:
+                break
         encoded_message.extend(byte)
         if len(encoded_message) >= 6 and encoded_message[-1] == EOT:  # Adjust the length and EOT byte as needed
             break
     return decode_message(encoded_message)
-    
 
 def get_ack(ser):
     destination = 0x01
@@ -155,22 +164,22 @@ def main():
     if not ack_received:
         print("Error communicating with device")
 
-    # Create an Ack message
-    destination = 0x42
-    source = 0x11
-    command = ACK
-    data = []
-    message = create_message(destination, source, command, data)
+    # # Create an Ack message
+    # destination = 0x42
+    # source = 0x11
+    # command = ACK
+    # data = []
+    # message = create_message(destination, source, command, data)
 
-    # Send the Ack message
-    send_message(ser, message)
+    # # Send the Ack message
+    # send_message(ser, message)
 
-    # Receive the response
-    response = receive_message(ser)
-    if response is None:
-        print("No response received from device")
-    else:
-        print(f"Received message: {response.header.destination}, {response.header.source}, {response.command.command}, {response.data.data}, {response.crc.msb}, {response.crc.lsb}")
+    # # Receive the response
+    # response = receive_message(ser)
+    # if response is None:
+    #     print("No response received from device")
+    # else:
+    #     print(f"Received message: {response.header.destination}, {response.header.source}, {response.command.command}, {response.data.data}, {response.crc.msb}, {response.crc.lsb}")
 
     # Close the serial port
     ser.close()
