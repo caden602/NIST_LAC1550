@@ -32,21 +32,20 @@ class Message:
         return bytes(escaped_data)
 
     def construct_message(self):
-        header = self.destination.to_bytes(1, byteorder='little') + self.source.to_bytes(1, byteorder='little')
+        header = self.destination.to_bytes(1, byteorder='little') + self.escape_special_characters(self.source.to_bytes(1, byteorder='little'))
         body = header + self.command.to_bytes(1, byteorder='little') + self.data
         crc = self.calculate_crc16()
         message = body + crc
-        escaped_message = self.escape_special_characters(message)
-        return b'\r' + escaped_message + b'\n'
+        return b'\r' + message + b'\n'
 
 # Define the serial connection
 ser = serial.Serial('COM14', 115200, timeout=1)
 
 # Define the message
-destination = 0xFF  # Broadcast address
-source = 0x01
-command = 0x01
-data = b'\x01\x02\x03\x04'  # Example data
+destination = 0x42
+source = 0x11
+command = 0x04
+data = b'\x0f\x06'
 
 message = Message(destination, source, command, data)
 constructed_message = message.construct_message()
@@ -86,5 +85,22 @@ if crc == 0:
 else:
     print("CRC16 check failed")
 
-# Print the response
-print("Response:", stripped_response)
+# Parse the response
+if stripped_response[0] == 0x5e and stripped_response[1] == 0x51:  # Source
+    if stripped_response[2] == 0x42:  # Destination
+        if stripped_response[3] == 0x08:  # Command
+            if stripped_response[4] == 0x0f:  # Top-level node
+                date_day = stripped_response[5]
+                date_month = stripped_response[6]
+                date_year = stripped_response[7]
+                print(f"DATE.day: {date_day}")
+                print(f"DATE.month: {date_month}")
+                print(f"DATE.year: {date_year}")
+            else:
+                print("Unknown top-level node")
+        else:
+            print("Unknown command")
+    else:
+        print("Unknown destination")
+else:
+    print("Unknown source")
