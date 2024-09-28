@@ -1,106 +1,126 @@
 import serial
+import struct
 
-# Define the message structure
-class Message:
-    def __init__(self, destination, source, command, data):
-        self.destination = destination
-        self.source = source
-        self.command = command
-        self.data = data
+# Define constants
+SOT = b'\r'  # Start of Transmission
+EOT = b'\n'  # End of Transmission
+SOE = b'^'  # Start of Escape sequence
+CRC16_POLY = 0x1021  # CRC-16/XMODEM polynomial
 
-    def calculate_crc16(self):
-        crc = 0
-        for byte in self.destination.to_bytes(1, byteorder='little') + \
-                   self.source.to_bytes(1, byteorder='little') + \
-                   self.command.to_bytes(1, byteorder='little') + self.data:
-            crc = crc << 8 | crc >> 8
-            crc ^= byte
-            crc ^= (crc & 0xff) >> 4
-            crc ^= crc << 12
-            crc ^= (crc & 0xff) << 5
-            crc &= 0xffff
-        return crc.to_bytes(2, byteorder='big')
+# Define a function to calculate the CRC-16/XMODEM checksum
+def checksum(data):
+    crc = 0
+    for byte in data:
+        crc = crc << 8 | crc >> 8
+        crc ^= byte
+        crc ^= (crc & 0xff) >> 4
+        crc ^= crc << 12
+        crc ^= (crc & 0xff) << 5
+        crc &= 0xffff
+    return crc
 
-    def escape_special_characters(self, data):
-        escaped_data = bytearray()
-        for byte in data:
-            if byte in [10, 13, 17, 19, 94]:
-                escaped_data.append(94)  # SOE
-                escaped_data.append(byte + 64)
-            else:
-                escaped_data.append(byte)
-        return bytes(escaped_data)
-
-    def construct_message(self):
-        header = self.destination.to_bytes(1, byteorder='little') + self.escape_special_characters(self.source.to_bytes(1, byteorder='little'))
-        body = header + self.command.to_bytes(1, byteorder='little') + self.data
-        crc = self.calculate_crc16()
-        message = body + crc
-        return b'\r' + message + b'\n'
-
-# Define the serial connection
-ser = serial.Serial('COM14', 115200, timeout=1)
-
-# Define the message
-destination = 0x42
-source = 0x11
-command = 0x04
-data = b'\x0f\x06'
-
-message = Message(destination, source, command, data)
-constructed_message = message.construct_message()
-
-# Send the message
-ser.write(constructed_message)
-
-# Receive the response
-response = ser.readline()
-
-# Unescape special characters
-unescape_response = bytearray()
-escape_sequence = False
-for byte in response:
-    if byte == 94:  # SOE
-        escape_sequence = True
-    elif escape_sequence:
-        unescape_response.append(byte - 64)
-        escape_sequence = False
-    else:
-        unescape_response.append(byte)
-
-# Strip SOT/EOT
-stripped_response = bytes(unescape_response)[1:-1]
-
-# Check CRC16
-crc = 0
-for byte in stripped_response:
-    crc = crc << 8 | crc >> 8
-    crc ^= byte
-    crc ^= (crc & 0xff) >> 4
-    crc ^= crc << 12
-    crc ^= (crc & 0xff) << 5
-    crc &= 0xffff
-if crc == 0:
-    print("CRC16 check passed")
-else:
-    print("CRC16 check failed")
-
-# Parse the response
-if stripped_response[0] == 0x5e and stripped_response[1] == 0x51:  # Source
-    if stripped_response[2] == 0x42:  # Destination
-        if stripped_response[3] == 0x08:  # Command
-            if stripped_response[4] == 0x0f:  # Top-level node
-                date_day = stripped_response[5]
-                date_month = stripped_response[6]
-                date_year = stripped_response[7]
-                print(f"DATE.day: {date_day}")
-                print(f"DATE.month: {date_month}")
-                print(f"DATE.year: {date_year}")
-            else:
-                print("Unknown top-level node")
+# Define a function to escape special characters
+def escape(data):
+    escaped_data = bytearray()
+    for byte in data:
+        if byte in [SOT, EOT, SOE]:
+            escaped_data.append(SOE)
+            escaped_data.append(byte | 0x40)
         else:
-            print("Unknown command")
-    else:
-        print("Unknown destination")
-else:
-    print("Unknown source")
+            escaped_data.append(byte)
+    return bytes(escaped_data)
+
+# Define a function to unescape special characters
+def unescape(data):
+    unescaped_data = bytearray()
+    escape_seq = False
+    for byte in data:
+        if byte == SOE:
+            escape_seq = True
+        elif escape_seq:
+            unescaped_data.append(byte & 0x3F)
+            escape_seq = False
+        else:
+            unescaped_data.append(byte)
+    return bytes(unescaped_data)
+
+# Define a function to send a message
+def send_message(serial_conn, destination, source, command, data):
+    # Create the message body
+    body = bytearray([destination, source, command]) + data
+
+    # Calculate the CRC-16/XMODEM checksum
+    crc = checksum(body)
+
+    # Append the checksum to the message body
+    body += struct.pack('>H', crc)
+
+    # Escape special characters
+    escaped_body = escape(body)
+
+    # Wrap the message body in SOT and EOT
+    message = SOT + escaped_body + EOT
+
+    # Send the message over the serial connection
+    serial_conn.write(message)
+
+# Define a function to receive a message
+def receive_message(serial_conn):
+    # Read the message from the serial connection
+    message = serial_conn.readline()
+
+    # Strip SOT and EOT
+    message = message.strip(SOT + EOT)
+
+    # Unescape special characters
+    unescaped_message = unescape(message)
+
+    # Check the CRC-16/XMODEM checksum
+    crc = checksum(unescaped_message[:-2])
+    if crc != 0:
+        raise ValueError("CRC error")
+
+    # Extract the message body
+    body = unescaped_message[:-2]
+
+    # Extract the destination, source, command, and data
+    destination = body[0]
+    source = body[1]
+    command = body[2]
+    data = body[3:]
+
+    return destination, source, command, data
+
+# Define a function to send a NACK command
+def send_nack(serial_conn, destination, source, read_write, register, error_code):
+    command = 0x00  # NACK command
+    data = bytearray([read_write, register, error_code])
+    send_message(serial_conn, destination, source, command, data)
+
+# Define a function to read a NACK command
+def read_nack(serial_conn):
+    destination, source, command, data = receive_message(serial_conn)
+    if command != 0x00:
+        raise ValueError("Expected NACK command")
+    read_write = data[0]
+    register = data[1]
+    error_code = data[2]
+    return read_write, register, error_code
+
+# Open the serial connection
+serial_conn = serial.Serial('COM14', 9600, timeout=1)
+
+# Send a NACK command
+destination = 0x01
+source = 0x02
+read_write = 0x01  # Read operation
+register = 0x03
+error_code = 0x04
+send_nack(serial_conn, destination, source, read_write, register, error_code)
+
+# Read a NACK command
+read_write, register, error_code = read_nack(serial_conn)
+print(f"Received NACK: read_write={read_write}, register={register}, error_code={error_code}")
+
+# Close the serial connection
+serial_conn.close()
