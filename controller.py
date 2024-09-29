@@ -1,10 +1,14 @@
 import serial
 import struct
+import commands
+import registers
 
 # Define constants
 SOT = b'\r'  # Start of Transmission
 EOT = b'\n'  # End of Transmission
-SOE = b'^'  # Start of Escape sequence
+XON = 0x11   # Transmission on
+XOFF = 0x13  # Transmission off
+SOE = 0x5E   # Start of Escape sequence
 CRC16_POLY = 0x1021  # CRC-16/XMODEM polynomial
 
 # Define a function to calculate the CRC-16/XMODEM checksum
@@ -17,6 +21,7 @@ def checksum(data):
         crc ^= crc << 12
         crc ^= (crc & 0xff) << 5
         crc &= 0xffff
+    crc = int(crc)
     return crc
 
 # Define a function to escape special characters
@@ -45,9 +50,9 @@ def unescape(data):
     return bytes(unescaped_data)
 
 # Define a function to send a message
-def send_message(serial_conn, destination, source, command, data):
+def send_message(serial_conn, destination, source, command):
     # Create the message body
-    body = bytearray([destination, source, command]) + data
+    body = bytearray([destination, source, command, 0x00])
 
     # Calculate the CRC-16/XMODEM checksum
     crc = checksum(body)
@@ -56,18 +61,22 @@ def send_message(serial_conn, destination, source, command, data):
     body += struct.pack('>H', crc)
 
     # Escape special characters
-    escaped_body = escape(body)
+    # escaped_body = escape(body)
 
-    # Wrap the message body in SOT and EOT
-    message = SOT + escaped_body + EOT
+    # # Wrap the message body in SOT and EOT
+    # message = SOT + escaped_body + EOT
 
     # Send the message over the serial connection
-    serial_conn.write(message)
+    serial_conn.write(body)
 
 # Define a function to receive a message
 def receive_message(serial_conn):
     # Read the message from the serial connection
     message = serial_conn.readline()
+
+    # Check if any data was received
+    if not message:
+        raise ValueError("No data received")
 
     # Strip SOT and EOT
     message = message.strip(SOT + EOT)
@@ -82,6 +91,10 @@ def receive_message(serial_conn):
 
     # Extract the message body
     body = unescaped_message[:-2]
+
+    # Check if the body has enough elements
+    if len(body) < 3:
+        raise ValueError("Invalid message body")
 
     # Extract the destination, source, command, and data
     destination = body[0]
@@ -99,28 +112,60 @@ def send_nack(serial_conn, destination, source, read_write, register, error_code
 
 # Define a function to read a NACK command
 def read_nack(serial_conn):
-    destination, source, command, data = receive_message(serial_conn)
+    try:
+        destination, source, command, data = receive_message(serial_conn)
+    except ValueError as e:
+        print(f"Error reading NACK: {e}")
+        return None
+
     if command != 0x00:
-        raise ValueError("Expected NACK command")
+        print("Expected NACK command")
+        return None
+
+    if len(data) < 3:
+        print("Invalid NACK data")
+        return None
+
     read_write = data[0]
     register = data[1]
     error_code = data[2]
     return read_write, register, error_code
 
+# [ser] [HID] [DID] [command] [address] [msbCRC] [lsbCRC]
+# def write_command(ser, HID, DID, command, address):
+#     data = bytearray([ser, HID, DID, command, address])
+#     CRC = checksum(data)
+
 # Open the serial connection
-serial_conn = serial.Serial('COM14', 9600, timeout=1)
+serial_conn = serial.Serial('COM14', 115200, timeout=1)
+
+hex_string = "0d425e51040f0694c00a"
+byte_array = bytearray.fromhex(hex_string)
+received = serial_conn.write(byte_array)
+
+# Send a ECHO command
+destination = 0x01
+source = 0xBB
+# address = 0x04
+# send_message(serial_conn, destination, source, commands.PROTO_CMD_ECHO)
+# received = receive_message(serial_conn)
+print("Received: ", received)
 
 # Send a NACK command
-destination = 0x01
-source = 0x02
-read_write = 0x01  # Read operation
-register = 0x03
-error_code = 0x04
-send_nack(serial_conn, destination, source, read_write, register, error_code)
+# destination = 0x01
+# source = 0xBB
+# read_write = 0x01  # Read operation
+# register = 0x03
+# error_code = 0x04
+# send_nack(serial_conn, destination, source, read_write, register, error_code)
 
-# Read a NACK command
-read_write, register, error_code = read_nack(serial_conn)
-print(f"Received NACK: read_write={read_write}, register={register}, error_code={error_code}")
+# # Read a NACK command
+# result = read_nack(serial_conn)
+# if result:
+#     read_write, register, error_code = result
+#     print(f"Received NACK: read_write={read_write}, register={register}, error_code={error_code}")
+# else:
+#     print("Failed to read NACK")
 
 # Close the serial connection
 serial_conn.close()
