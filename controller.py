@@ -138,7 +138,7 @@ def read_nack(serial_conn):
 
 # Open the serial connection
 serial_conn = serial.Serial('COM14', 115200, timeout=1)
-
+    
 hex_string = "0d425e51040f0694c00a"
 byte_array = bytearray.fromhex(hex_string)
 received = serial_conn.write(byte_array)
